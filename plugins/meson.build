@@ -35,8 +35,8 @@ if get_option('plugin_msr')
 subdir('msr')
 endif
 
-if get_option('plugin_linux_spi_lpc')
-subdir('linux-spi-lpc')
+if get_option('plugin_platform_integrity')
+subdir('platform-integrity')
 endif
 
 if get_option('gudev')

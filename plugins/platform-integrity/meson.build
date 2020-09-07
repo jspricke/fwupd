@@ -1,9 +1,19 @@
 cargs = ['-DG_LOG_DOMAIN="FuPluginLinuxSpiLpc"']
 
-shared_module('fu_plugin_linux_spi_lpc',
+install_data([
+  'platform-integrity.quirk',
+  ],
+  install_dir: join_paths(datadir, 'fwupd', 'quirks.d')
+)
+
+install_data(['fwupd-platform-integrity.conf'],
+  install_dir: join_paths(sysconfdir, 'modules-load.d')
+)
+
+shared_module('fu_plugin_platform_integrity',
   fu_hash,
   sources : [
-    'fu-plugin-linux-spi-lpc.c',
+    'fu-plugin-platform-integrity.c',
   ],
   include_directories : [
     root_incdir,

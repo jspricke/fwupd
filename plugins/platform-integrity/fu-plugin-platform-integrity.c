@@ -10,17 +10,47 @@
 #include "fu-plugin-vfuncs.h"
 #include "fu-hash.h"
 
-#define FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR	"/sys/kernel/security/spi"
+struct FuPluginData {
+	gchar			*sysfs_path;
+};
 
 void
 fu_plugin_init (FuPlugin *plugin)
 {
+	fu_plugin_alloc_data (plugin, sizeof (FuPluginData));
 	fu_plugin_set_build_hash (plugin, FU_BUILD_HASH);
+	fu_plugin_add_udev_subsystem (plugin, "platform-integrity");
+}
+
+void
+fu_plugin_destroy (FuPlugin *plugin)
+{
+	FuPluginData *priv = fu_plugin_get_data (plugin);
+	g_free (priv->sysfs_path);
+}
+
+gboolean
+fu_plugin_udev_device_added (FuPlugin *plugin, FuUdevDevice *device, GError **error)
+{
+	FuPluginData *priv = fu_plugin_get_data (plugin);
+
+	/* interesting device? */
+	if (g_strcmp0 (fu_udev_device_get_subsystem (device), "platform-integrity") != 0)
+		return TRUE;
+
+	/* we only care about the first instance */
+	if (priv->sysfs_path != NULL)
+		return TRUE;
+
+	/* success */
+	priv->sysfs_path = g_strdup (fu_udev_device_get_sysfs_path (device));
+	return TRUE;
 }
 
 static void
 fu_plugin_add_security_attr_bioswe (FuPlugin *plugin, FuSecurityAttrs *attrs)
 {
+	FuPluginData *priv = fu_plugin_get_data (plugin);
 	gsize bufsz = 0;
 	g_autofree gchar *buf = NULL;
 	g_autofree gchar *fn = NULL;
@@ -34,14 +64,8 @@ fu_plugin_add_security_attr_bioswe (FuPlugin *plugin, FuSecurityAttrs *attrs)
 	fwupd_security_attr_add_obsolete (attr, "pci_bcr");
 	fu_security_attrs_append (attrs, attr);
 
-	/* maybe the kernel module does not exist */
-	if (!g_file_test (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, G_FILE_TEST_IS_DIR)) {
-		fwupd_security_attr_set_result (attr, FWUPD_SECURITY_ATTR_RESULT_NOT_FOUND);
-		return;
-	}
-
 	/* load file */
-	fn = g_build_filename (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, "bioswe", NULL);
+	fn = g_build_filename (priv->sysfs_path, "bioswe", NULL);
 	if (!g_file_get_contents (fn, &buf, &bufsz, &error_local)) {
 		g_warning ("could not open %s: %s", fn, error_local->message);
 		fwupd_security_attr_set_result (attr, FWUPD_SECURITY_ATTR_RESULT_NOT_VALID);
@@ -60,15 +84,12 @@ fu_plugin_add_security_attr_bioswe (FuPlugin *plugin, FuSecurityAttrs *attrs)
 static void
 fu_plugin_add_security_attr_ble (FuPlugin *plugin, FuSecurityAttrs *attrs)
 {
+	FuPluginData *priv = fu_plugin_get_data (plugin);
 	gsize bufsz = 0;
 	g_autofree gchar *buf = NULL;
 	g_autofree gchar *fn = NULL;
 	g_autoptr(FwupdSecurityAttr) attr = NULL;
 	g_autoptr(GError) error_local = NULL;
-
-	/* maybe the kernel module does not exist */
-	if (!g_file_test (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, G_FILE_TEST_IS_DIR))
-		return;
 
 	/* create attr */
 	attr = fwupd_security_attr_new (FWUPD_SECURITY_ATTR_ID_SPI_BLE);
@@ -77,7 +98,7 @@ fu_plugin_add_security_attr_ble (FuPlugin *plugin, FuSecurityAttrs *attrs)
 	fu_security_attrs_append (attrs, attr);
 
 	/* load file */
-	fn = g_build_filename (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, "ble", NULL);
+	fn = g_build_filename (priv->sysfs_path, "ble", NULL);
 	if (!g_file_get_contents (fn, &buf, &bufsz, &error_local)) {
 		g_warning ("could not open %s: %s", fn, error_local->message);
 		fwupd_security_attr_set_result (attr, FWUPD_SECURITY_ATTR_RESULT_NOT_VALID);
@@ -96,15 +117,12 @@ fu_plugin_add_security_attr_ble (FuPlugin *plugin, FuSecurityAttrs *attrs)
 static void
 fu_plugin_add_security_attr_smm_bwp (FuPlugin *plugin, FuSecurityAttrs *attrs)
 {
+	FuPluginData *priv = fu_plugin_get_data (plugin);
 	gsize bufsz = 0;
 	g_autofree gchar *buf = NULL;
 	g_autofree gchar *fn = NULL;
 	g_autoptr(FwupdSecurityAttr) attr = NULL;
 	g_autoptr(GError) error_local = NULL;
-
-	/* maybe the kernel module does not exist */
-	if (!g_file_test (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, G_FILE_TEST_IS_DIR))
-		return;
 
 	/* create attr */
 	attr = fwupd_security_attr_new (FWUPD_SECURITY_ATTR_ID_SPI_SMM_BWP);
@@ -113,7 +131,7 @@ fu_plugin_add_security_attr_smm_bwp (FuPlugin *plugin, FuSecurityAttrs *attrs)
 	fu_security_attrs_append (attrs, attr);
 
 	/* load file */
-	fn = g_build_filename (FU_PLUGIN_LINUX_SPI_LPC_SYSFS_DIR, "smm_bwp", NULL);
+	fn = g_build_filename (priv->sysfs_path, "smm_bwp", NULL);
 	if (!g_file_get_contents (fn, &buf, &bufsz, &error_local)) {
 		g_warning ("could not open %s: %s", fn, error_local->message);
 		fwupd_security_attr_set_result (attr, FWUPD_SECURITY_ATTR_RESULT_NOT_VALID);
@@ -132,8 +150,10 @@ fu_plugin_add_security_attr_smm_bwp (FuPlugin *plugin, FuSecurityAttrs *attrs)
 void
 fu_plugin_add_security_attrs (FuPlugin *plugin, FuSecurityAttrs *attrs)
 {
-	/* only Intel */
-	if (!fu_common_is_cpu_intel ())
+	FuPluginData *priv = fu_plugin_get_data (plugin);
+
+	/* only when the kernel module is available */
+	if (priv->sysfs_path == NULL)
 		return;
 
 	/* look for the three files in sysfs */
