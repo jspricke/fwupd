@@ -586,10 +586,34 @@ fu_thunderbolt_device_prepare_firmware (FuDevice *device,
 					GError **error)
 {
 	FuThunderboltDevice *self = FU_THUNDERBOLT_DEVICE (device);
+	const gchar *attribute;
+	guint64 status;
 	g_autoptr(FuThunderboltFirmwareUpdate) firmware = fu_thunderbolt_firmware_update_new ();
 	g_autoptr(FuThunderboltFirmware) firmware_old = fu_thunderbolt_firmware_new ();
 	g_autoptr(GBytes) controller_fw = NULL;
 	g_autoptr(GFile) nvmem = NULL;
+
+	/* make sure that authorized is enabled */
+	attribute = fu_udev_device_get_sysfs_attr (FU_UDEV_DEVICE (device), "authorized", error);
+	if (attribute == NULL)
+		return FALSE;
+	status = g_ascii_strtoull (attribute, NULL, 16);
+	if (status == G_MAXUINT64 && errno == ERANGE) {
+		g_set_error (error, G_IO_ERROR,
+			     g_io_error_from_errno (errno),
+			     "failed to read 'authorized: %s",
+			     g_strerror (errno));
+		return FALSE;
+	}
+	if (status != 1) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_INTERNAL,
+			     "%s not authorized (status %" G_GINT64_MODIFIER "x)",
+			     fu_device_get_name (device),
+			     status);
+		return FALSE;
+	}
 
 	/* parse */
 	if (!fu_firmware_parse (FU_FIRMWARE (firmware), fw, flags, error))
